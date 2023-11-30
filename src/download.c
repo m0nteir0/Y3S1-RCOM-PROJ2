@@ -16,15 +16,17 @@
 #include <netdb.h>
 #include <fcntl.h>
 
-struct URL
+#define SERVER_PORT 21
+
+typedef struct URL
 {
-  char ip[100];
-  char host[100];
-  char path[100];
-  char filename[100];
-  char user[100];
-  char password[100];
-};
+  char ip[128];
+  char host[256];
+  char path[256];
+  char filename[128];
+  char user[128];
+  char password[128];
+} URL;
 
 void printURL(const struct URL *url)
 {
@@ -53,6 +55,37 @@ int getIP(char *host, char *ip)
   return 0;
 }
 
+// establish connection with server
+// given by professor
+int connectSocket(char *ip, int port)
+{
+  int sockfd;
+  struct sockaddr_in server_addr;
+
+  /*server address handling*/
+  bzero((char *)&server_addr, sizeof(server_addr));
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_addr.s_addr = inet_addr(ip); /*32 bit Internet address network byte ordered*/
+  server_addr.sin_port = htons(port);          /*server TCP port must be network byte ordered */
+
+  /*open a TCP socket*/
+  if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+  {
+    perror("socket()");
+    exit(-1);
+  }
+  /*connect to the server*/
+  if (connect(sockfd,
+              (struct sockaddr *)&server_addr,
+              sizeof(server_addr)) < 0)
+  {
+    perror("connect()");
+    exit(-1);
+  }
+
+  return sockfd;
+}
+
 // parse url
 // ftp://<user>:<password>@<host>/<url>
 int parse(char *url, struct URL *URL)
@@ -73,109 +106,151 @@ int parse(char *url, struct URL *URL)
   char *password = strtok(NULL, "@");
   if (password != NULL)
   {
-    strcpy(URL->host, credentials);
+    strcpy(URL->host, strtok(NULL, ""));
   }
   else
   {
     user = "anonymous";
     password = "anonymous";
-    strcpy(URL->host, strtok(NULL, ""));
-
-    
+    strcpy(URL->host, credentials);
   }
 
   strcpy(URL->path, path);
   strcpy(URL->user, user);
   strcpy(URL->password, password);
 
-  printf("\n\n");
-  printURL(URL);
-  printf("\n\n");
-
   getIP(URL->host, URL->ip);
 
-
-  // ftp://anonymous:anonymous@ftp.up.pt/pub/kodi/timestamp.txt
-  /*
-  // remove "ftp://" from the beginning of the URL
-  char *token = strtok(url, "/");
-  if (token == NULL || strcmp(token, "ftp:") != 0)
+  // get filename from path
+  char *filename = strrchr(path, '/');
+  if (filename != NULL)
   {
-    printf("Invalid URL format\n");
-    printf("Header\n");
-    exit(-1);
-  }
-  printf("URL: %s\n", url);
-  //URL: ftp: -> why???
-
-  // skip the empty token between "//" and the username
-  strtok(NULL, "/");
-  // extract user and password
-  char *user = strtok(NULL, ":");
-  if (user != NULL)
-  {
-    printf("User: %s\n", user);
-
-    char *pass = strtok(NULL, "@");
-    printf("Pass: %s\n", pass);
-    strcpy(URL->user, user);
-    if (pass != NULL)
-    {
-      strcpy(URL->password, pass);
-    }
+    filename++; // skip the '/'
   }
   else
   {
-    strcpy(URL->user, "anonymous");
-    strcpy(URL->password, "anonymous");
+    filename = path; // the path doesn't contain any '/', so it's actually the filename
   }
 
+  strcpy(URL->filename, filename);
 
   printf("\n\n");
   printURL(URL);
   printf("\n\n");
-
-
-  // extract host
-  char *host = strtok(NULL, "/");
-  if (host == NULL)
-  {
-    printf("Invalid URL format\n");
-    printf("Host\n");
-    exit(-1);
-  }
-  strcpy(URL->host, host);
-
-  printf("\n\n");
-  printURL(URL);
-  printf("\n\n");
-
-
-  // // extract path and filename
-  // token = strtok(NULL, "/");
-  // if (token == NULL)
-  // {
-  //   printf("Invalid URL format\n");
-  //   exit(-1);
-  // }
-  // strcpy(URL->path, token);
-
-  // token = strtok(NULL, "");
-  // if (token == NULL)
-  // {
-  //   printf("Invalid URL format\n");
-  //   exit(-1);
-  // }
-  // strcpy(URL->filename, token);
-
-  // // get IP from host
-  // getIP(URL->host, URL->ip);
-  */
   return 0;
 }
 
 // function to send commands to server
+int sendCommand(int sockfd, char *command)
+{
+  ssize_t bytes_written = write(sockfd, command, strlen(command));
+  if (bytes_written < strlen(command))
+  {
+    perror("Error writing to socket");
+    return -1;
+  }
+  return 0;
+}
+
 // function to read response from server
+void readResponse(int sockfd) {
+    char response[256];
+    ssize_t bytes_read = read(sockfd, response, sizeof(response) - 1);
+    if (bytes_read < 0) {
+        perror("Error reading from socket");
+        return;
+    }
+    response[bytes_read] = '\0'; // null-terminate the response
+    printf("Server response: %s\n", response);
+}
+
+// ====================
+// !WARNING: By Copilot, needs to be tested
+int download(struct URL *URL)
+{
+  int sockfd = connectSocket(URL->ip, SERVER_PORT);
+  if (sockfd == -1)
+  {
+    perror("Error creating socket");
+    return -1;
+  }
+
+  printf("Connected to server\n");
+
+  // FILE * readSockect = fdopen(sockfd, "r");
+  readResponse(sockfd);
+
+  // send user and password
+  char user[256];
+  sprintf(user, "user %s\n", URL->user);
+  write(sockfd, user, strlen(user));
+
+  printf("Sent user\n");
+  readResponse(sockfd);
+
+
+  char password[256];
+  sprintf(password, "pass %s\n", URL->password);
+  write(sockfd, password, strlen(password));
+
+  printf("Sent password\n");
+  readResponse(sockfd);
+
+  // send pasv command
+  char pasv[256];
+  sprintf(pasv, "pasv\n");
+  write(sockfd, pasv, strlen(pasv));
+
+  printf("Sent pasv\n");
+  readResponse(sockfd);
+
+  // read addresses and port from response
+  char response[256];
+  read(sockfd, response, 256);
+
+  printf("Response: %s\n", response);
+
+  strtok(response, "(");
+  char *ip1 = strtok(NULL, ",");
+  char *ip2 = strtok(NULL, ",");
+  char *ip3 = strtok(NULL, ",");
+  char *ip4 = strtok(NULL, ",");
+  char *port1 = strtok(NULL, ",");
+  char *port2 = strtok(NULL, ")");
+
+  char ip[32];
+  sprintf(ip, "%s.%s.%s.%s", ip1, ip2, ip3, ip4);
+
+  int port = atoi(port1) * 256 + atoi(port2);
+
+  printf("IP: %s\n", ip);
+  printf("Port: %d\n", port);
+
+  // connect to server -> open socket for receiving file
+  int sockfd2 = connectSocket(ip, port);
+
+  // send retr command
+  char retr[500];
+  sprintf(retr, "retr %s\n", URL->path);
+  write(sockfd, retr, strlen(retr));
+
+  // receive file
+  char buffer[500];
+  int file = open(URL->filename, O_WRONLY | O_CREAT, 0666);
+  int bytes;
+  while ((bytes = read(sockfd2, buffer, 500)) > 0)
+  {
+    write(file, buffer, bytes);
+  }
+
+  close(file);
+  close(sockfd);
+  close(sockfd2);
+
+  return 0;
+}
+
+// ====================
 
 // need two sockets. one for receiving the file and other for reading commands from server
 int main(int argc, char *argv[])
@@ -190,9 +265,18 @@ int main(int argc, char *argv[])
   struct URL URL;
 
   // parse data from argv[1] to URL struct
-  parse(argv[1], &URL);
+  if (parse(argv[1], &URL) != 0)
+  {
+    printf("Error parsing URL\n");
+    exit(-1);
+  }
 
   // download logic -> similar to lab
+  if (download(&URL) != 0)
+  {
+    printf("Error downloading file\n");
+    exit(-1);
+  }
 
   // 1. connect to server -> open socket for sending/receiving commands
   // 2. send user and password
