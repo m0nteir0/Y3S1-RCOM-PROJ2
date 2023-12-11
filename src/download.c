@@ -1,11 +1,3 @@
-// #include <arpa/inet.h>
-// #include <netdb.h>
-// #include <netinet/in.h>
-// #include <stdio.h>
-// #include <stdlib.h>
-// #include <string.h>
-// #include <unistd.h>
-
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -23,7 +15,7 @@ typedef struct URL
   char ip[128];
   char host[256];
   char path[256];
-  char filename[128];
+  char filename[128]; // end of path
   char user[128];
   char password[128];
 } URL;
@@ -87,15 +79,15 @@ int connectSocket(char *ip, int port)
 }
 
 // parse url
-// ftp://<user>:<password>@<host>/<url>
+// ftp://<user>:<password>@<host>/<path>
 int parse(char *url, struct URL *URL)
 {
   printf("URL: %s\n", url);
 
-  char *ftp = strtok(url, "/");
+  char *ftp = strtok(url, "/"); // gets the header
   char *credentials = strtok(NULL, "/"); // [<user>:<password>@]<host>
   char *path = strtok(NULL, "");         // url-path
-
+  
   if (strcmp(ftp, "ftp:") != 0)
   {
     printf("Error: Not using ftp protocol\n");
@@ -103,12 +95,13 @@ int parse(char *url, struct URL *URL)
   }
 
   char *user = strtok(credentials, ":");
+  printf("User: %s\n", user);
   char *password = strtok(NULL, "@");
-  if (password != NULL)
+  if (user != NULL && password != NULL)
   {
     strcpy(URL->host, strtok(NULL, ""));
   }
-  else
+  else // credentials == host
   {
     user = "anonymous";
     password = "anonymous";
@@ -119,13 +112,13 @@ int parse(char *url, struct URL *URL)
   strcpy(URL->user, user);
   strcpy(URL->password, password);
 
-  getIP(URL->host, URL->ip);
+  getIP(URL->host, URL->ip); // get ip from host and store in URL->ip
 
   // get filename from path
-  char *filename = strrchr(path, '/');
+  char *filename = strrchr(path, '/'); // get last occurrence of '/', returns NULL if not found
   if (filename != NULL)
   {
-    filename++; // skip the '/'
+    filename++; // skip the '/', so taht the filename string doesn't contain it
   }
   else
   {
@@ -140,32 +133,21 @@ int parse(char *url, struct URL *URL)
   return 0;
 }
 
-// function to send commands to server
-int sendCommand(int sockfd, char *command)
-{
-  ssize_t bytes_written = write(sockfd, command, strlen(command));
-  if (bytes_written < strlen(command))
-  {
-    perror("Error writing to socket");
-    return -1;
-  }
-  return 0;
-}
-
 // function to read response from server
-void readResponse(int sockfd) {
-    char response[256];
-    ssize_t bytes_read = read(sockfd, response, sizeof(response) - 1);
-    if (bytes_read < 0) {
-        perror("Error reading from socket");
-        return;
-    }
-    response[bytes_read] = '\0'; // null-terminate the response
-    printf("Server response: %s\n", response);
+void readResponse(int sockfd)
+{
+  char response[512];
+  ssize_t bytes_read = read(sockfd, response, sizeof(response) - 1);
+  if (bytes_read < 0)
+  {
+    perror("Error reading from socket");
+    return;
+  }
+  response[bytes_read] = '\0'; // null-terminate the response
+  printf("Server response: \n%s\n", response);
 }
 
 // ====================
-// !WARNING: By Copilot, needs to be tested
 int download(struct URL *URL)
 {
   int sockfd = connectSocket(URL->ip, SERVER_PORT);
@@ -175,7 +157,7 @@ int download(struct URL *URL)
     return -1;
   }
 
-  printf("Connected to server\n");
+  printf("Status: Connected to server\n");
 
   // FILE * readSockect = fdopen(sockfd, "r");
   readResponse(sockfd);
@@ -183,32 +165,33 @@ int download(struct URL *URL)
   // send user and password
   char user[256];
   sprintf(user, "user %s\n", URL->user);
-  write(sockfd, user, strlen(user));
-
-  printf("Sent user\n");
+  if (write(sockfd, user, strlen(user)) < strlen(user)) {
+    perror("Error writing to socket");
+    return -1;
+}
+  printf("Status: Sent user\n");
   readResponse(sockfd);
-
 
   char password[256];
   sprintf(password, "pass %s\n", URL->password);
-  write(sockfd, password, strlen(password));
+  write(sockfd, password, strlen(password)); // !TODO: error handling
 
-  printf("Sent password\n");
+  printf("Status: Sent password\n");
   readResponse(sockfd);
 
   // send pasv command
   char pasv[256];
   sprintf(pasv, "pasv\n");
-  write(sockfd, pasv, strlen(pasv));
+  write(sockfd, pasv, strlen(pasv));  // !TODO: error handling
 
-  printf("Sent pasv\n");
-  readResponse(sockfd);
+  printf("Status: Sent pasv\n");
+  // readResponse(sockfd);
 
   // read addresses and port from response
   char response[256];
-  read(sockfd, response, 256);
+  read(sockfd, response, 256);        // !TODO: error handling
 
-  printf("Response: %s\n", response);
+  printf("Server Response: \n%s\n", response);
 
   strtok(response, "(");
   char *ip1 = strtok(NULL, ",");
@@ -228,20 +211,32 @@ int download(struct URL *URL)
 
   // connect to server -> open socket for receiving file
   int sockfd2 = connectSocket(ip, port);
+  printf("Status: Socket created\n");
 
   // send retr command
   char retr[500];
   sprintf(retr, "retr %s\n", URL->path);
-  write(sockfd, retr, strlen(retr));
+  write(sockfd, retr, strlen(retr));  // !TODO: error handling
+
+  printf("Retr sent\n");
 
   // receive file
-  char buffer[500];
+  char buffer[512];
   int file = open(URL->filename, O_WRONLY | O_CREAT, 0666);
   int bytes;
-  while ((bytes = read(sockfd2, buffer, 500)) > 0)
+  while ((bytes = read(sockfd2, buffer, 512)) > 0)
   {
-    write(file, buffer, bytes);
+    printf("Bytes");
+    printf("Reading...");
+    // write(file, buffer, bytes);
+    if (write(file, buffer, bytes) < 0)
+    {
+      perror("Error writing to file");
+      return -1;
+    }
   }
+
+  printf("Status: Closing connection\n");
 
   close(file);
   close(sockfd);
