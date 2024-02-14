@@ -5,13 +5,13 @@ SRC = src/
 
 # First URL
 # URL = ftp://anonymous:anonymous@ftp.up.pt/pub/kodi/timestamp.txt
-URL = ftp://ftp.up.pt/pub/kodi/timestamp.txt
+# URL = ftp://ftp.up.pt/pub/kodi/timestamp.txt
 
 # Second URL
 # URL = ftp://rcom:rcom@netlab1.fe.up.pt/pipe.txt
 # URL = ftp://netlab1.fe.up.pt/pipe.txt
 
-# URL = ftp://rcom:rcom@netlab1.fe.up.pt/files/crab.mp4
+URL = ftp://rcom:rcom@netlab1.fe.up.pt/files/crab.mp4
 # URL = ftp://netlab1.fe.up.pt/files/crab.mp4
 
 
